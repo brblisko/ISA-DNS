@@ -53,3 +53,5 @@ dkms.conf
 
 # Idea
 .idea/
+dns_reciver
+dns_sender
