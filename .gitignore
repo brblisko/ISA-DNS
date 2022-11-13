@@ -53,5 +53,6 @@ dkms.conf
 
 # Idea
 .idea/
-dns_reciver
+dns_receiver
 dns_sender
+file.txt
