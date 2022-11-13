@@ -1,6 +1,6 @@
 CFLAGS=-std=gnu99 -Wall -Wextra -pedantic -pthread -g # -Werror
-RFILES=./receiver/main.c ./receiver/dns_receiver_events.c ./receiver/parameter_parser.c
-SFILES=./sender/main.c ./sender/dns_sender_events.c ./sender/parameter_parser.c
+RFILES=./receiver/main.c ./receiver/dns_receiver_events.c ./receiver/parameter_parser.c ./receiver/receiver_client.c base32.c
+SFILES=./sender/main.c ./sender/dns_sender_events.c ./sender/parameter_parser.c ./sender/sender_client.c base32.c
 
 .PHONY: all receiver sender clean
 
