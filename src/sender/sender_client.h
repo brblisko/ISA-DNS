@@ -12,8 +12,11 @@
 #include <uuid/uuid.h>
 #include "parameter_parser.h"
 
-#define PORT    53
-#define MAXLINE 120
+#define PORT        53
+#define MAXLINE     32
+#define PATH_ID     5
+#define DATA_ID     13
+#define FINISH_ID   15
 
 
 bool sender_client(parsed_params *PP);

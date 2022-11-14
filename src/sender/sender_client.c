@@ -27,11 +27,81 @@ struct DNS_FOOTER {
     unsigned short qclass;
 };
 
+
+void encode_base_host(char *base_host, char *base_host_no_dots) {
+    int char_counter = 0;
+    size_t i = 0;
+    for (; i < strlen(base_host); i++) {
+        if (base_host[i] == '.') {
+            base_host_no_dots[char_counter] = i - char_counter;
+            memcpy(base_host_no_dots + char_counter + 1, base_host + char_counter, i - char_counter);
+            char_counter = i + 1;
+        }
+    }
+    base_host_no_dots[char_counter] = i - char_counter;
+    memcpy(base_host_no_dots + char_counter + 1, base_host + char_counter, i - char_counter);
+}
+
+void prepare_dns_structs(struct DNS_HEADER *dns_header, struct DNS_FOOTER *dns_footer, int id) {
+    dns_header->id = (unsigned short) htons(id);
+    dns_header->qr = 0;
+    dns_header->opcode = 0;
+    dns_header->aa = 0;
+    dns_header->tc = 0;
+    dns_header->rd = 1;
+    dns_header->ra = 0;
+    dns_header->z = 0;
+    dns_header->rcode = 0;
+    dns_header->q_count = htons(1);
+    dns_header->ans_count = 0;
+    dns_header->auth_count = 0;
+    dns_header->add_count = 0;
+
+    dns_footer->qtype = htons(1);
+    dns_footer->qclass = htons(1);
+}
+
+int prepare_packet(char *packet,
+                   struct DNS_HEADER *dns_header,
+                   char *msg,
+                   char *base_host,
+                   struct DNS_FOOTER *dns_footer) {
+    //add header
+    memcpy(packet, dns_header, sizeof(struct DNS_HEADER));
+    //add data
+    packet[sizeof(struct DNS_HEADER)] = strlen(msg);
+    memcpy(packet + sizeof(struct DNS_HEADER) + 1, msg, strlen(msg));
+    // add base_host
+    memcpy(packet + sizeof(struct DNS_HEADER) + 1 + strlen(msg), base_host,
+           strlen(base_host));
+    // add footer
+    memcpy(packet + sizeof(struct DNS_HEADER) + 1 + strlen(msg) + strlen(base_host) + 1,
+           dns_footer,
+           sizeof(struct DNS_FOOTER));
+    return sizeof(struct DNS_HEADER) + 1 + strlen(msg) + strlen(base_host) + 1 +
+           sizeof(struct DNS_FOOTER);
+}
+
+void clean(char *packet, char *encoded_buffer) {
+    memset(packet, 0, 512);
+    memset(encoded_buffer, 0, 300);
+}
+
 bool sender_client(parsed_params *PP) {
     int sockfd;
     char buffer[1000];
+    char packet[512] = {0};
     int msg_size;
     struct sockaddr_in servaddr;
+    char base_host_no_dots[300] = {0};
+    char encoded_buffer[300] = {0};
+    struct DNS_HEADER dns_header;
+    struct DNS_FOOTER dns_footer;
+    int packet_len;
+    int n, len;
+
+
+    encode_base_host(PP->base_host, base_host_no_dots);
 
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("socket creation failed");
@@ -45,81 +115,38 @@ bool sender_client(parsed_params *PP) {
     servaddr.sin_port = htons(PORT);
     servaddr.sin_addr.s_addr = PP->upstream_dns_ip.s_addr;
 
+    //send path
+    prepare_dns_structs(&dns_header, &dns_footer, PATH_ID);
+    base32_encode((const unsigned char *) PP->dst_filepath, strlen(PP->dst_filepath), (unsigned char *) encoded_buffer,
+                  300);
+    packet_len = prepare_packet(packet, &dns_header, encoded_buffer, base_host_no_dots, &dns_footer);
 
-    char packet[512] = {0};
-    struct DNS_HEADER dns_header;
-    struct DNS_FOOTER dns_footer;
-    dns_header.id = (unsigned short) htons(12);
-    dns_header.qr = 0;
-    dns_header.opcode = 0;
-    dns_header.aa = 0;
-    dns_header.tc = 0;
-    dns_header.rd = 1;
-    dns_header.ra = 0;
-    dns_header.z = 0;
-    dns_header.rcode = 0;
-    dns_header.q_count = htons(1);
-    dns_header.ans_count = 0;
-    dns_header.auth_count = 0;
-    dns_header.add_count = 0;
-
-    dns_footer.qtype = htons(1);
-    dns_footer.qclass = htons(1);
-    memcpy(packet, &dns_header, sizeof(struct DNS_HEADER));
+    sendto(sockfd, packet,
+           packet_len, MSG_CONFIRM,
+           (const struct sockaddr *) &servaddr, sizeof(servaddr));     // send data to the server
 
 
-    while ((msg_size = fread(buffer, 1, MAXLINE - 1, PP->fptr)) > 0) {
-        int n, len;
+    n = recvfrom(sockfd, (char *) buffer, MAXLINE,
+                 MSG_WAITALL, (struct sockaddr *) &servaddr,
+                 &len);
+    buffer[n] = '\0';
 
+    clean(packet, encoded_buffer);
+
+
+    while ((msg_size = fread(buffer, 1, MAXLINE, PP->fptr)) > 0) {
         // encode
-        char encoded_buffer[300];
         base32_encode((const unsigned char *) buffer, msg_size, (unsigned char *) encoded_buffer, 300);
-        int encoded_buffer_size = strlen(encoded_buffer);
 
-        // write encoded **+1 for length of encoded_buffer_size**
-        packet[sizeof(struct DNS_HEADER)] = encoded_buffer_size;
-        memcpy(packet + sizeof(struct DNS_HEADER) + 1, encoded_buffer, encoded_buffer_size);
-
-        // write domain **+1 for length of base_host string**
-        
-        char base_host_no_dots[300] = {0};
-        char helper[300] = {0};
-        int char_counter = 1;
-        size_t i = 0;
-        for (; i < strlen(PP->base_host); i++) {
-            if (PP->base_host[i] == '.') {
-                base_host_no_dots[char_counter] = (!char_counter) ? 0 : i;
-                //save +1 space for the number ^ and + 1 to skip dot
-                memcpy(base_host_no_dots + ((!char_counter) ? 0 : char_counter + 1),
-                       PP->base_host + ((!char_counter) ? 0 : char_counter + 1),
-                       i + 1);
-                char_counter = i + 1;
-            }
-        }
-        base_host_no_dots[char_counter] = i;
-        //save +1 space for the number ^
-        memcpy(base_host_no_dots + char_counter + 1, PP->base_host + char_counter + 1, i);
-        printf("%s\n", base_host_no_dots);
-
-
-//        packet[sizeof(struct DNS_HEADER) + encoded_buffer_size + 1] = strlen(PP->base_host);
-        memcpy(packet + sizeof(struct DNS_HEADER) + 1 + 1 + encoded_buffer_size, base_host_no_dots,
-               strlen(base_host_no_dots));
-
-        // write footer **+1 to save one \000 before footer**
-        memcpy(packet + sizeof(struct DNS_HEADER) + 1 + 1 + encoded_buffer_size + strlen(PP->base_host) + 1,
-               &dns_footer,
-               sizeof(struct DNS_FOOTER));
-
-        // calculate lenght
-        int packet_len =
-                sizeof(struct DNS_HEADER) + 1 + 1 + encoded_buffer_size + strlen(PP->base_host) + 1 +
-                sizeof(struct DNS_FOOTER);
+        prepare_dns_structs(&dns_header, &dns_footer, DATA_ID);
+        packet_len = prepare_packet(packet, &dns_header, encoded_buffer, base_host_no_dots, &dns_footer);
 
         sendto(sockfd, packet,
                packet_len, MSG_CONFIRM,
                (const struct sockaddr *) &servaddr, sizeof(servaddr));     // send data to the server
 
+
+        clean(packet, encoded_buffer);
 
         // read the answer from the server
         n = recvfrom(sockfd, (char *) buffer, MAXLINE,
@@ -128,6 +155,25 @@ bool sender_client(parsed_params *PP) {
         buffer[n] = '\0';
         printf("Server : %s\n", buffer);           // print the answer
     }
+
+    //send finito
+    prepare_dns_structs(&dns_header, &dns_footer, FINISH_ID);
+    base32_encode((const unsigned char *) "finished", strlen("finished"), (unsigned char *) encoded_buffer,
+                  300);
+    packet_len = prepare_packet(packet, &dns_header, encoded_buffer, base_host_no_dots, &dns_footer);
+
+    sendto(sockfd, packet,
+           packet_len, MSG_CONFIRM,
+           (const struct sockaddr *) &servaddr, sizeof(servaddr));     // send data to the server
+
+    n = recvfrom(sockfd, (char *) buffer, MAXLINE,
+                 MSG_WAITALL, (struct sockaddr *) &servaddr,
+                 &len);
+    buffer[n] = '\0';
+
+    clean(packet, encoded_buffer);
+
+
     close(sockfd);
     printf("* Closing the client socket ...\n");
     return true;

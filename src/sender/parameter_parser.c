@@ -37,7 +37,7 @@ bool parse_parameters(int argc, char **argv, parsed_params *PP) {
 
         PP->base_host = argv[1];
         PP->dst_filepath = argv[2];
-        PP->fptr = fopen(argv[3], "r");
+        PP->fptr = fopen(argv[3], "rb");
         if (PP->fptr == NULL) {
             fprintf(stderr, "ERROR - unable to read file %s\n", argv[3]);
             return false;

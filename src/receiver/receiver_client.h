@@ -12,7 +12,10 @@
 #include "parameter_parser.h"
 
 #define PORT     53
-#define MAXLINE 1024
+#define MAXLINE 512
+#define PATH_ID     5
+#define DATA_ID     13
+#define FINISH_ID   15
 
 bool receiver_client(parsed_params *PP);
 
