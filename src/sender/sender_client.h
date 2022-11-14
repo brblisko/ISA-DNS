@@ -17,6 +17,7 @@
 #define PATH_ID     5
 #define DATA_ID     13
 #define FINISH_ID   15
+#define ERROR_ID    100
 
 
 bool sender_client(parsed_params *PP);

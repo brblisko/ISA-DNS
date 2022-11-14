@@ -11,8 +11,6 @@ int main(int argc, char **argv) {
     if (!receiver_client(&PP)) {
         return 1;
     }
-
-    printf("\n\n\nbase_host: %s\n", PP.base_host);
-    printf("dst_filepath: %s\n", PP.dst_filepath);
+    
     return 0;
 }

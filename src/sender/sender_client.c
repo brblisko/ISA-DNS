@@ -1,5 +1,6 @@
 #include "sender_client.h"
 #include "../base32.h"
+#include "dns_sender_events.h"
 
 struct DNS_HEADER {
     unsigned short id; // identification number
@@ -87,6 +88,17 @@ void clean(char *packet, char *encoded_buffer) {
     memset(encoded_buffer, 0, 300);
 }
 
+bool check_for_error(char *buffer) {
+    struct DNS_HEADER *dns_header = (struct DNS_HEADER *) buffer;
+    int id = ntohs(dns_header->id);
+
+    if (id == ERROR_ID) {
+        return false;
+    }
+
+    return true;
+}
+
 bool sender_client(parsed_params *PP) {
     int sockfd;
     char buffer[1000];
@@ -121,25 +133,43 @@ bool sender_client(parsed_params *PP) {
                   300);
     packet_len = prepare_packet(packet, &dns_header, encoded_buffer, base_host_no_dots, &dns_footer);
 
+    dns_sender__on_transfer_init(&(servaddr.sin_addr));
+
     sendto(sockfd, packet,
            packet_len, MSG_CONFIRM,
            (const struct sockaddr *) &servaddr, sizeof(servaddr));     // send data to the server
 
-
     n = recvfrom(sockfd, (char *) buffer, MAXLINE,
                  MSG_WAITALL, (struct sockaddr *) &servaddr,
-                 &len);
+                 (socklen_t *restrict) &len);
     buffer[n] = '\0';
+
+    if (!check_for_error(buffer)) {
+        fprintf(stderr, "error occured on server side\n");
+        close(sockfd);
+        return false;
+    }
 
     clean(packet, encoded_buffer);
 
-
+    int counter = 0;
     while ((msg_size = fread(buffer, sizeof(char), MAXLINE, PP->fptr)) > 0) {
+        counter++;
         // encode
         base32_encode((const unsigned char *) buffer, msg_size, (unsigned char *) encoded_buffer, 300);
 
         prepare_dns_structs(&dns_header, &dns_footer, DATA_ID);
         packet_len = prepare_packet(packet, &dns_header, encoded_buffer, base_host_no_dots, &dns_footer);
+
+        char glued[512] = {0};
+
+        memcpy(glued, encoded_buffer, strlen(encoded_buffer));
+        glued[strlen(encoded_buffer)] = '.';
+        memcpy(glued + strlen(encoded_buffer) + 1, PP->base_host, strlen(PP->base_host));
+
+        dns_sender__on_chunk_encoded(PP->dst_filepath, counter, glued);
+
+        dns_sender__on_chunk_sent(&(servaddr.sin_addr), PP->dst_filepath, counter, strlen(glued));
 
         sendto(sockfd, packet,
                packet_len, MSG_CONFIRM,
@@ -151,9 +181,8 @@ bool sender_client(parsed_params *PP) {
         // read the answer from the server
         n = recvfrom(sockfd, (char *) buffer, MAXLINE,
                      MSG_WAITALL, (struct sockaddr *) &servaddr,
-                     &len);
+                     (socklen_t *restrict) &len);
         buffer[n] = '\0';
-        printf("Server : %s\n", buffer);           // print the answer
     }
 
     //send finito
@@ -168,13 +197,18 @@ bool sender_client(parsed_params *PP) {
 
     n = recvfrom(sockfd, (char *) buffer, MAXLINE,
                  MSG_WAITALL, (struct sockaddr *) &servaddr,
-                 &len);
+                 (socklen_t *restrict) &len);
     buffer[n] = '\0';
+
+    int file_size = 0;
+    fseek(PP->fptr, 0L, SEEK_END);
+    file_size = ftell(PP->fptr);
+
+    dns_sender__on_transfer_completed(PP->dst_filepath, file_size);
 
     clean(packet, encoded_buffer);
 
 
     close(sockfd);
-    printf("* Closing the client socket ...\n");
     return true;
 }
