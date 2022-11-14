@@ -25,6 +25,12 @@ struct DNS_HEADER {
     unsigned short add_count; // number of resource entries
 };
 
+struct DNS_FOOTER {
+    unsigned short qtype;
+    unsigned short qclass;
+};
+
+
 // from stackoverflow
 // https://stackoverflow.com/questions/2336242/recursive-mkdir-system-call-on-unix
 static void _mkdir(const char *dir) {
@@ -63,7 +69,9 @@ bool process_file_path(char *data, parsed_params *PP) {
 
     memcpy(file_path_no_file, PP->dst_filepath, strlen(PP->dst_filepath));
     file_path_no_file[strlen(PP->dst_filepath)] = '/';
-    memcpy(file_path_no_file + strlen(PP->dst_filepath) + 1, decoded, strlen(decoded) - strlen(last) - 1);
+    if (strcmp(decoded, last) != 0) {
+        memcpy(file_path_no_file + strlen(PP->dst_filepath) + 1, decoded, strlen(decoded) - strlen(last) - 1);
+    }
 
     memcpy(file_path, PP->dst_filepath, strlen(PP->dst_filepath));
     file_path[strlen(PP->dst_filepath)] = '/';
@@ -167,7 +175,9 @@ bool receiver_client(parsed_params *PP) {
                 if (fp != NULL) {
                     char decoded[300] = {0};
                     base32_decode(data, decoded, 300);
-                    fwrite(decoded, sizeof(char), strlen(decoded), fp);
+                    int real_size =
+                            msg_size - (sizeof(struct DNS_HEADER) + sizeof(struct DNS_FOOTER) + strlen(base_host_name));
+                    fwrite(decoded, sizeof(char), real_size - 23, fp);
                 }
             } else if (id == FINISH_ID) {
                 if (fp != NULL) {

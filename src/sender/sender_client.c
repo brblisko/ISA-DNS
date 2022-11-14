@@ -134,7 +134,7 @@ bool sender_client(parsed_params *PP) {
     clean(packet, encoded_buffer);
 
 
-    while ((msg_size = fread(buffer, 1, MAXLINE, PP->fptr)) > 0) {
+    while ((msg_size = fread(buffer, sizeof(char), MAXLINE, PP->fptr)) > 0) {
         // encode
         base32_encode((const unsigned char *) buffer, msg_size, (unsigned char *) encoded_buffer, 300);
 
